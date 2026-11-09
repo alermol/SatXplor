@@ -141,8 +141,17 @@ make_pca_plots <- function(pca_res, filename, output_path) {
 }
 
 make_umap_plot <- function(umap_input, filename, output_path, msa) {
+  n <- nrow(umap_input)
+  if (n < 3) {
+    cat("Fewer than three sequences for", filename, "- skipping UMAP\n")
+    return(invisible(NULL))
+  }
+
   set.seed(42)
-  umap_res <- umap(umap_input)
+  # UMAP's default n_neighbors = 15 is larger than small families.  Keep the
+  # default for normal families and shrink it for small ones.
+  n_neighbors <- min(15, max(2, n - 1))
+  umap_res <- umap(umap_input, n_neighbors = n_neighbors)
   cat("Finished UMAP calculating: \n", opt$sequence_alignment)
 
   pca_r_dt <- umap_res$layout %>% as.data.table()

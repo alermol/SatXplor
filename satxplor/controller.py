@@ -10,11 +10,55 @@ from logging_config import logger
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from r_script_runners import (run_pca_script,
-                                  run_flank_distances,
+                                  run_flank_kmers,
                                   run_microhomology,
                                   run_networks_script )
 import json
 from preprocess import sanitize_and_filter_sequences
+
+
+def _available_memory_gb():
+    try:
+        with open('/proc/meminfo') as handle:
+            for line in handle:
+                if line.startswith('MemAvailable:'):
+                    return int(line.split()[1]) / (1024.0 * 1024.0)
+    except OSError:
+        pass
+    return None
+
+
+def _parallel_workers(per_worker_gb, budget_fraction=0.5):
+    """Bound worker count by free memory as well as by CPU count.
+
+    The R stages build dense N x N matrices and use roughly 10-14 GB per
+    process.  One worker per CPU overcommits memory and the kernel kills R
+    with SIGKILL (return code -9), so also budget against MemAvailable.
+    """
+    cpus = max(1, int(os.environ.get('SATXPLOR_CPUS', os.cpu_count() or 1)))
+    available = _available_memory_gb()
+    if available is None:
+        return cpus
+    workers = int((available * budget_fraction) / per_worker_gb)
+    return max(1, min(cpus, workers))
+
+
+def _clear_directory(path):
+    """Remove the contents of a directory without removing the directory.
+
+    Needed when ./results is a bind mount: rmtree() would fail with EBUSY
+    when it tries to remove the mount point itself.
+    """
+    if not os.path.isdir(path):
+        os.makedirs(path, exist_ok=True)
+        return
+    for entry in os.listdir(path):
+        item = os.path.join(path, entry)
+        if os.path.isdir(item) and not os.path.islink(item):
+            shutil.rmtree(item)
+        else:
+            os.remove(item)
+
 
 def save_constants(data):
     with open('satxplor/utils/constants.json', 'w') as f:
@@ -95,11 +139,7 @@ def initialize_preprocess_blast():
     # Create or clear the 'results' folder
     logger.info('Removing data in existing results and tmp directories.')
     results_folder = './results'
-    if os.path.exists(results_folder):
-        shutil.rmtree(results_folder)
-
-        
-    os.makedirs(results_folder)
+    _clear_directory(results_folder)
 
     #data saving roots
     os.makedirs(paths.DATA_SAVE_ROOT)
@@ -238,23 +278,51 @@ def run_pca():
     search_string = 'monomers_aligned'
     matching_files = utils.get_files_containing_string(paths.SEQ_SAVE_PATH, search_string)
 
-    with ProcessPoolExecutor() as executor:
-        executor.map(run_pca_script, matching_files)
-    
+    workers = _parallel_workers(per_worker_gb=16.0, budget_fraction=0.5)
+    logger.info(f"Running PCA/UMAP with {workers} parallel worker(s)")
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(run_pca_script, matching_files))
+    failed = [f for f, ok in zip(matching_files, results) if not ok]
+    if failed:
+        raise RuntimeError(
+            f"PCA/UMAP failed for {len(failed)} file(s): " + ", ".join(failed)
+        )
+
 def run_networks():
     search_string = 'matrix.csv.gz'
     matching_files = utils.get_files_containing_string(paths.PCA_UMAP_SAVE_ROOT, search_string)
 
     
-    with ProcessPoolExecutor() as executor:
-        executor.map(run_networks_script, matching_files)
+    workers = _parallel_workers(per_worker_gb=20.0, budget_fraction=0.4)
+    logger.info(f"Running network plots with {workers} parallel worker(s)")
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(run_networks_script, matching_files))
+    failed = [f for f, ok in zip(matching_files, results) if not ok]
+    if failed:
+        raise RuntimeError(
+            f"Network plots failed for {len(failed)} file(s): " + ", ".join(failed)
+        )
 
 def run_flanks():
-    search_string = 'flanks_aligned'
-    matching_files = utils.get_files_containing_string(paths.FLANKS_SAVE_ROOT, search_string)
+    # Compute Mash distances directly on the raw 500 bp flanks.  No MSA is
+    # needed, so run_mafft.py no longer aligns the flank files.
+    matching_files = [
+        path for path in utils.get_files_containing_string(
+            paths.FLANKS_SAVE_ROOT, '_flanks.fasta')
+        if path.endswith('_flanks.fasta')
+    ]
+    matching_files.sort()
 
-    with ProcessPoolExecutor() as executor:
-        executor.map(run_flank_distances, matching_files)
+    workers = min(3, _parallel_workers(per_worker_gb=25.0, budget_fraction=0.4))
+    logger.info(f"Running k-mer flank distances with {workers} parallel worker(s)")
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(run_flank_kmers, matching_files))
+    failed = [f for f, ok in zip(matching_files, results) if not ok]
+    if failed:
+        raise RuntimeError(
+            f"Flank distance maps failed for {len(failed)} file(s): "
+            + ", ".join(failed)
+        )
 
 
 def main():
@@ -270,7 +338,7 @@ def main():
             logger.error(f"Destination folder '{config[ 'FINAL_RESULTS_DIR' ] }' already exists. but OVERWRITE is off. Exiting the application.")
         else: 
             logger.info("Since OVERWRITE is on, trying to delete the folder!")
-            shutil.rmtree(config["FINAL_RESULTS_DIR"])
+            _clear_directory(config["FINAL_RESULTS_DIR"])
             logger.info("Folder successfully deleted")
 
 
@@ -331,8 +399,19 @@ def main():
 
         
 
-# Copy the entire folder from source to destination
-    shutil.copytree("./results", config["FINAL_RESULTS_DIR"])
+# Copy the entire folder from source to destination.  When ./results is
+    # already a bind mount of FINAL_RESULTS_DIR, write in place and skip the
+    # expensive (and redundant) copy.
+    same_results = False
+    try:
+        same_results = os.path.samefile("./results", config["FINAL_RESULTS_DIR"])
+    except OSError:
+        same_results = (os.path.abspath("./results") ==
+                        os.path.abspath(config["FINAL_RESULTS_DIR"]))
+    if not same_results:
+        shutil.copytree("./results", config["FINAL_RESULTS_DIR"])
+    else:
+        logger.info("Results already written directly to FINAL_RESULTS_DIR; skipping copy")
     utils.move_file(config["GENOME_PATH"],config['FINAL_RESULTS_DIR'])
     utils.move_file(config["SAT_FASTA_PATH"],config['FINAL_RESULTS_DIR'])
     

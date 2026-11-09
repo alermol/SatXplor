@@ -15,7 +15,7 @@ def extract_monomers(file_path: str, fasta_records: list) -> None:
 
         if len(group_df) > 10000:
             logger.info(f"Large number of monomers detected for {group_key[0]}, downsampling to 10000 monomers.")
-            group_df = group_df.sample(n=10000)
+            group_df = group_df.sample(n=10000, seed=42)
 
 
         subsequence_records = extract_subsequences(fasta_records, group_df)

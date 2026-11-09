@@ -6,7 +6,6 @@ use bio::io::fasta;
 use std::fs;
 use debruijn::*;
 use debruijn::kmer::*;
-use ndarray::{ Array2,ArrayBase,OwnedRepr,Dim};
 mod utils;
 mod ploting;
 use ploting::plot_roll_mean;
@@ -32,8 +31,6 @@ fn process_fasta(sequence_path: &str, monomer_path: &str,outpath: &str) -> Resul
         
         let kmers = Kmer32::kmers_from_ascii(record.seq());
 
-        let mut dist_mat: ArrayBase<OwnedRepr<u32>,
-         Dim<[usize; 2]>> = Array2::zeros((kmers.len(), kmers.len()));
         let mut kmer_in_array_pos_dist: Vec<i32> = Vec::new();
 
         for i in 0..kmers.len() {

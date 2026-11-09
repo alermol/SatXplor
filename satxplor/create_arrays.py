@@ -122,7 +122,11 @@ if __name__ == '__main__':
         )
 
         # Create a histogram using Plotly Express
-            plot = (ggplot(tmp_df, aes(x='distance')) +
+            # The histogram is display-only.  Sample it so a 1M-copy family
+            # does not spend minutes plotting; peak detection below still uses
+            # the full distance data.
+            plot_df = tmp_df.sample(n=min(50000, tmp_df.height), seed=42)
+            plot = (ggplot(plot_df, aes(x='distance')) +
                 geom_histogram(alpha=0.7,binwidth=constants.HISTOGRAM_BIN_WIDTH,color="black",
                             fill="#e5c8d6") +
                 ggtitle(group_key[0]) +

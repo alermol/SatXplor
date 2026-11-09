@@ -15,7 +15,7 @@ install_packages_if_not_installed <- function(package_names) {
 
 
 vec <- c("BiocManager","ggplot2","data.table","dplyr","umap",
-"stringr","FactoMineR","ape","optparse",
+"stringr","FactoMineR","ape","optparse","RSpectra",
 "htmlwidgets","igraph","networkD3","circlize",
 "pheatmap","scales")
 

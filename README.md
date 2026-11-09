@@ -41,13 +41,14 @@ SatXplor is configured to run on any Linux system. If you prefer to install and 
 0. Linux distribution - Supporting glibc>=2.32 (ubuntu 22+).
 1. NCBI Blast - Required for sequence alignment and analysis.
 2. MAFFT - Necessary for multiple sequence alignment.
-3. R - With the following R package dependencies: 
+3. Mash - Used to compute distances between array flanks.
+4. R - With the following R package dependencies: 
    1. cmake
    2. libxml2-dev
-4. pip - Required for installing Python packages.
-5. Mamba - For managing packages and environments.
-6. Cargo - The Rust package manager.
-7. pkg-config - Needed for managing library flags.
+5. pip - Required for installing Python packages.
+6. Mamba - For managing packages and environments.
+7. Cargo - The Rust package manager.
+8. pkg-config - Needed for managing library flags.
 
 ## Installation
 
@@ -130,14 +131,14 @@ If you prefer to install and run SatXplor manually without Docker, follow the st
 
     mamba activate myenv
 
-    mamba install -c conda-forge r-biocmanager r-ggplot2 r-data.table r-dplyr r-umap r-stringr r-factominer r-ape r-optparse r-htmlwidgets r-igraph r-networkd3 r-circlize r-pheatmap r-scales bioconda::bioconductor-biostrings bioconda::bioconductor-complexheatmap  -y 
+    mamba install -c conda-forge r-biocmanager r-ggplot2 r-data.table r-dplyr r-umap r-stringr r-factominer r-ape r-optparse r-rspectra r-htmlwidgets r-igraph r-networkd3 r-circlize r-pheatmap r-scales bioconda::bioconductor-biostrings bioconda::bioconductor-complexheatmap  -y 
     ```
 
 6. (Optional) Install both MAFFT and NCBI-BLAST through mamba:
 
     ```
     mamba activate myenv
-    mamba install -c conda-forge -c bioconda mafft blast
+    mamba install -c conda-forge -c bioconda mafft blast mash
     ```
 7. If you are running older versions of Linux systems, you need to manually compile the new Rust binary on your older system by downloading Rust:
 

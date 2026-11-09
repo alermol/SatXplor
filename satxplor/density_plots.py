@@ -31,7 +31,9 @@ grouped = df.group_by(['query'])
 for group_key, group_df in grouped:
     try:
         nbins=constants.NKERNEL_BINS
-        x,y = group_df["qcovhsp"]*100,group_df["perc_id"]
+        # KDE is display-only; cap the points used for the contour plot.
+        plot_df = group_df.sample(n=min(50000, group_df.height), seed=42)
+        x,y = plot_df["qcovhsp"]*100,plot_df["perc_id"]
         k = gaussian_kde([x,y])
 
         xi, yi = np.mgrid[x.min():x.max():nbins*1j, y.min():y.max():nbins*1j]
